@@ -1466,4 +1466,28 @@ void Dataset::AddFeaturesFrom(Dataset* other) {
   }
 }
 
+void Dataset::ConstructSymmetricLevelHistogram(
+    const int group_index, std::vector<hist_t*>& out, const score_t* gradients, const score_t* hessians,
+    data_size_t num_data_in_small_leaf, const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices) const {
+  feature_groups_[group_index]->bin_data_->ConstructSymmetricTreeHistogram(
+    num_data_in_small_leaf, data_indices_in_small_leaf, small_leaf_indices, gradients, hessians, out);
+}
+
+void Dataset::ConstructSymmetricLevelHistogramsMultiVal(const data_size_t* data_indices_in_small_leaf,
+                                          data_size_t num_data_in_small_leaf,
+                                          const uint32_t* small_leaf_indices,
+                                          const score_t* gradients,
+                                          const score_t* hessians,
+                                          TrainingShareStates* share_state,
+                                          const std::vector<hist_t*>& hist_data) const {
+  if (data_indices_in_small_leaf == nullptr) {
+    share_state->ConstructSymmetricTreeHistograms<false, true>(data_indices_in_small_leaf,
+      small_leaf_indices, num_data_in_small_leaf, gradients, hessians, hist_data);
+  } else {
+    share_state->ConstructSymmetricTreeHistograms<true, true>(data_indices_in_small_leaf,
+      small_leaf_indices, num_data_in_small_leaf, gradients, hessians, hist_data);
+  }
+}
+
 }  // namespace LightGBM

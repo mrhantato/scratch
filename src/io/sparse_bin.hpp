@@ -195,6 +195,151 @@ class SparseBin : public Bin {
       cur_pos += deltas_[++i_delta];
     }
   }
+
+  template <bool USE_HESSIAN, bool SINGLE_SMALL_LEAF, bool IS_ROOT>
+  void ConstructSymmetricTreeHistogramInner(data_size_t num_data_in_small_leaf,
+    const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices,
+    const score_t* ordered_gradients, const score_t* ordered_hessians,
+    std::vector<hist_t*>& out) const {
+    if (IS_ROOT) {
+      CHECK_EQ(num_data_in_small_leaf, num_data_);
+      hist_t* grad = out[0];
+      hist_t* hess = out[0] + 1;
+      data_size_t i_delta, cur_pos;
+      InitIndex(0, &i_delta, &cur_pos);
+      data_size_t i = 0;
+      for (;;) {
+        if (cur_pos < i) {
+          cur_pos += deltas_[++i_delta];
+          if (i_delta >= num_vals_) {
+            break;
+          }
+        } else if (cur_pos > i) {
+          if (++i >= num_data_in_small_leaf) {
+            break;
+          }
+        } else {
+          const uint32_t ti = static_cast<uint32_t>(vals_[i_delta]) << 1;
+          grad[ti] += ordered_gradients[i];
+          if (USE_HESSIAN) {
+            hess[ti] += ordered_hessians[i];
+          } else {
+            hess[ti] += 1.0f;
+          }
+          if (++i >= num_data_) {
+            break;
+          }
+          cur_pos += deltas_[++i_delta];
+          if (i_delta >= num_vals_) {
+            break;
+          }
+        }
+      }
+    } else if (SINGLE_SMALL_LEAF) {
+      hist_t* grad = out[0];
+      hist_t* hess = out[0] + 1;
+      data_size_t i_delta, cur_pos;
+      const data_size_t start = data_indices_in_small_leaf[0];
+      InitIndex(start, &i_delta, &cur_pos);
+      data_size_t i = 0;
+      for (;;) {
+        if (cur_pos < data_indices_in_small_leaf[i]) {
+          cur_pos += deltas_[++i_delta];
+          if (i_delta >= num_vals_) {
+            break;
+          }
+        } else if (cur_pos > data_indices_in_small_leaf[i]) {
+          if (++i >= num_data_in_small_leaf) {
+            break;
+          }
+        } else {
+          const uint32_t ti = static_cast<uint32_t>(vals_[i_delta]) << 1;
+          grad[ti] += ordered_gradients[i];
+          if (USE_HESSIAN) {
+            hess[ti] += ordered_hessians[i];
+          } else {
+            hess[ti] += 1.0f;
+          }
+          if (++i >= num_data_in_small_leaf) {
+            break;
+          }
+          cur_pos += deltas_[++i_delta];
+          if (i_delta >= num_vals_) {
+            break;
+          }
+        }
+      }
+    } else {
+      data_size_t i_delta, cur_pos;
+      const data_size_t start = data_indices_in_small_leaf[0];
+      InitIndex(start, &i_delta, &cur_pos);
+      data_size_t i = 0;
+      for (;;) {
+        if (cur_pos < data_indices_in_small_leaf[i]) {
+          cur_pos += deltas_[++i_delta];
+          if (i_delta >= num_vals_) {
+            break;
+          }
+        } else if (cur_pos > data_indices_in_small_leaf[i]) {
+          if (++i >= num_data_in_small_leaf) {
+            break;
+          }
+        } else {
+          const uint32_t ti = static_cast<uint32_t>(vals_[i_delta]) << 1;
+          hist_t* leaf_out = out[small_leaf_indices[i]];
+          leaf_out[ti] += ordered_gradients[i];
+          if (USE_HESSIAN) {
+            leaf_out[ti + 1] += ordered_hessians[i]; 
+          } else {
+            leaf_out[ti + 1] += 1.0f;
+          }
+          if (++i >= num_data_in_small_leaf) {
+            break;
+          }
+          cur_pos += deltas_[++i_delta];
+          if (i_delta >= num_vals_) {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  void ConstructSymmetricTreeHistogram(data_size_t num_data_in_small_leaf,
+    const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices,
+    const score_t* ordered_gradients, const score_t* ordered_hessians,
+    std::vector<hist_t*>& out) const override {
+    if (num_data_in_small_leaf == num_data_) {
+      ConstructSymmetricTreeHistogramInner<true, false, true>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, ordered_hessians, out);
+    } else if (small_leaf_indices == nullptr) {
+      ConstructSymmetricTreeHistogramInner<true, true, false>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, ordered_hessians, out);
+    } else {
+      ConstructSymmetricTreeHistogramInner<true, false, false>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, ordered_hessians, out);
+    }
+  }
+
+  void ConstructSymmetricTreeHistogram(data_size_t num_data_in_small_leaf,
+    const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices,
+    const score_t* ordered_gradients,
+    std::vector<hist_t*>& out) const override {
+    if (num_data_in_small_leaf == num_data_) {
+      ConstructSymmetricTreeHistogramInner<false, false, true>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, nullptr, out);
+    } else if (small_leaf_indices == nullptr) {
+      ConstructSymmetricTreeHistogramInner<false, true, false>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, nullptr, out);
+    } else {
+      ConstructSymmetricTreeHistogramInner<false, false, false>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, nullptr, out);
+    }
+  }
+
 #undef ACC_GH
 
   inline void NextNonzeroFast(data_size_t* i_delta,

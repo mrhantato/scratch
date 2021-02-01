@@ -159,6 +159,9 @@ struct Config {
   // descl2 = **Note**: setting ``linear_tree=true`` significantly increases the memory use of LightGBM
   bool linear_tree = false;
 
+  // desc = fit symmetric trees
+  bool symmetric_tree = false;
+
   // alias = train, train_data, train_data_file, data_filename
   // desc = path of training data, LightGBM will train from this data
   // desc = **Note**: can be used only in CLI version

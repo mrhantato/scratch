@@ -129,6 +129,17 @@ class LeafSplits {
     num_data_in_leaf_ = 0;
   }
 
+  void Init(const int leaf_index,
+            const data_size_t num_data_in_leaf,
+            const double sum_gradients,
+            const double sum_hessians,
+            const double leaf_output) {
+    leaf_index_ = leaf_index;
+    num_data_in_leaf_ = num_data_in_leaf;
+    sum_gradients_ = sum_gradients;
+    sum_hessians_ = sum_hessians;
+    weight_ = leaf_output;
+  }
 
   /*! \brief Get current leaf index */
   int leaf_index() const { return leaf_index_; }

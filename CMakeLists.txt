@@ -327,6 +327,7 @@ file(GLOB SOURCES
     src/objective/*.cpp
     src/network/*.cpp
     src/treelearner/*.cpp
+    src/treelearner/symmetric/*.cpp
 if(USE_CUDA)
     src/treelearner/*.cu
 endif(USE_CUDA)

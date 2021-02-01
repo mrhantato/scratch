@@ -179,6 +179,107 @@ class MultiValSparseBin : public MultiValBin {
                                               gradients, hessians, out);
   }
 
+  template <bool USE_INDICES, bool USE_PREFETCH, bool ORDERED>
+  void ConstructSymmetricTreeHistogramInner(const data_size_t start,
+    const data_size_t end,
+    const data_size_t* data_indices,
+    const uint32_t* small_leaf_indices,
+    const score_t* gradients,
+    const score_t* hessians,
+    const std::vector<hist_t*>& out) const {
+    data_size_t i = start;
+    hist_t* root_grad = out[0];
+    hist_t* root_hess = out[0] + 1;
+    const VAL_T* data_ptr = data_.data();
+    if (USE_PREFETCH) {
+      const data_size_t pf_offset = 32 / sizeof(VAL_T);
+      const data_size_t pf_end = end - pf_offset;
+
+      for (; i < pf_end; ++i) {
+        const auto idx = USE_INDICES ? data_indices[i] : i;
+        const auto pf_idx =
+            USE_INDICES ? data_indices[i + pf_offset] : i + pf_offset;
+        if (!ORDERED) {
+          PREFETCH_T0(gradients + pf_idx);
+          PREFETCH_T0(hessians + pf_idx);
+        }
+        PREFETCH_T0(row_ptr_.data() + pf_idx);
+        PREFETCH_T0(data_ptr + row_ptr_[pf_idx]);
+        const auto j_start = RowPtr(idx);
+        const auto j_end = RowPtr(idx + 1);
+        const score_t gradient = ORDERED ? gradients[i] : gradients[idx];
+        const score_t hessian = ORDERED ? hessians[i] : hessians[idx];
+        if (!USE_INDICES) {
+          for (auto j = j_start; j < j_end; ++j) {
+            const auto ti = static_cast<uint32_t>(data_ptr[j]) << 1;
+            root_grad[ti] += gradient;
+            root_hess[ti] += hessian;
+          }
+        } else {
+          for (auto j = j_start; j < j_end; ++j) {
+            const auto ti = static_cast<uint32_t>(data_ptr[j]) << 1;
+            const uint32_t leaf_index = small_leaf_indices[i];
+            hist_t* out_ptr = out[leaf_index];
+            out_ptr[ti] += gradient;
+            out_ptr[ti + 1] += hessian;
+          }
+        }
+      }
+    }
+    for (; i < end; ++i) {
+      const auto idx = USE_INDICES ? data_indices[i] : i;
+      const auto j_start = RowPtr(idx);
+      const auto j_end = RowPtr(idx + 1);
+      const score_t gradient = ORDERED ? gradients[i] : gradients[idx];
+      const score_t hessian = ORDERED ? hessians[i] : hessians[idx];
+      if (!USE_INDICES) {
+        for (auto j = j_start; j < j_end; ++j) {
+          const auto ti = static_cast<uint32_t>(data_ptr[j]) << 1;
+          root_grad[ti] += gradient;
+          root_hess[ti] += hessian;
+        }
+      } else {
+        for (auto j = j_start; j < j_end; ++j) {
+          const auto ti = static_cast<uint32_t>(data_ptr[j]) << 1;
+          const uint32_t leaf_index = small_leaf_indices[i];
+          hist_t* out_ptr = out[leaf_index];
+          out_ptr[ti] += gradient;
+          out_ptr[ti + 1] += hessian;
+        }
+      }
+    }
+  }
+
+  void ConstructSymmetricTreeHistogram(const data_size_t start,
+    const data_size_t end,
+    const data_size_t* data_indices,
+    const uint32_t* small_leaf_indices,
+    const score_t* gradients,
+    const score_t* hessians,
+    const std::vector<hist_t*>& out) const override {
+    ConstructSymmetricTreeHistogramInner<true, true, false>(
+      start, end, data_indices, small_leaf_indices, gradients, hessians, out);
+  }
+
+  virtual void ConstructSymmetricTreeHistogram(const data_size_t start,
+    const data_size_t end,
+    const score_t* gradients,
+    const score_t* hessians,
+    const std::vector<hist_t*>& out) const override {
+    ConstructSymmetricTreeHistogramInner<false, false, false>(
+      start, end, nullptr, nullptr, gradients, hessians, out);
+  }
+
+  virtual void ConstructSymmetricTreeHistogramOrdered(const data_size_t start,
+    const data_size_t end,
+    const data_size_t* data_indices,
+    const score_t* ordered_gradients,
+    const score_t* ordered_hessians,
+    const std::vector<hist_t*>& out) const override {
+    ConstructSymmetricTreeHistogramInner<true, true, true>(
+      start, end, data_indices, nullptr, ordered_gradients, ordered_hessians, out);
+  }
+
   MultiValBin* CreateLike(data_size_t num_data, int num_bin, int,
                           double estimate_element_per_row,
                           const std::vector<uint32_t>& /*offsets*/) const override {

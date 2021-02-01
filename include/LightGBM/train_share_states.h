@@ -34,13 +34,19 @@ class MultiValBinWrapper {
     const data_size_t* bagging_use_indices,
     data_size_t bagging_indices_cnt);
 
-  void HistMove(const std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>& hist_buf);
+  void HistMove(const std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>& hist_buf,
+                hist_t* origin_hist_data);
 
-  void HistMerge(std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>* hist_buf);
+  void HistMerge(std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>* hist_buf,
+                 hist_t* origin_hist_data);
 
   void ResizeHistBuf(std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>* hist_buf,
+    MultiValBin* sub_multi_val_bin);
+
+  void SymmetricTreeResizeHistBuf(std::vector<std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>>* hist_buf,
     MultiValBin* sub_multi_val_bin,
-    hist_t* origin_hist_data);
+    const std::vector<hist_t*>& origin_hist_data,
+    const int num_leaf);
 
   template <bool USE_INDICES, bool ORDERED>
   void ConstructHistograms(const data_size_t* data_indices,
@@ -58,7 +64,7 @@ class MultiValBinWrapper {
       data_block_size_ = num_data;
       Threading::BlockInfo<data_size_t>(num_threads_, num_data, min_block_size_,
                                         &n_data_block_, &data_block_size_);
-      ResizeHistBuf(hist_buf, cur_multi_val_bin, origin_hist_data);
+      ResizeHistBuf(hist_buf, cur_multi_val_bin);
       OMP_INIT_EX();
       #pragma omp parallel for schedule(static) num_threads(num_threads_)
       for (int block_id = 0; block_id < n_data_block_; ++block_id) {
@@ -67,17 +73,66 @@ class MultiValBinWrapper {
         data_size_t end = std::min<data_size_t>(start + data_block_size_, num_data);
         ConstructHistogramsForBlock<USE_INDICES, ORDERED>(
           cur_multi_val_bin, start, end, data_indices, gradients, hessians,
-          block_id, hist_buf);
+          block_id, hist_buf, origin_hist_data);
         OMP_LOOP_EX_END();
       }
       OMP_THROW_EX();
       global_timer.Stop("Dataset::sparse_bin_histogram");
 
       global_timer.Start("Dataset::sparse_bin_histogram_merge");
-      HistMerge(hist_buf);
+      HistMerge(hist_buf, origin_hist_data);
       global_timer.Stop("Dataset::sparse_bin_histogram_merge");
       global_timer.Start("Dataset::sparse_bin_histogram_move");
-      HistMove(*hist_buf);
+      HistMove(*hist_buf, origin_hist_data);
+      global_timer.Stop("Dataset::sparse_bin_histogram_move");
+    }
+  }
+
+  template <bool USE_INDICES, bool ORDERED>
+  void ConstructSymmetricTreeHistograms(
+      const data_size_t* data_indices,
+      const uint32_t* leaf_indices,
+      data_size_t num_data,
+      const score_t* gradients,
+      const score_t* hessians,
+      std::vector<std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>>* hist_buf,
+      const std::vector<hist_t*>& origin_hist_data) {
+    const auto cur_multi_val_bin = (is_use_subcol_ || is_use_subrow_)
+          ? multi_val_bin_subset_.get()
+          : multi_val_bin_.get();
+    if (cur_multi_val_bin != nullptr) {
+      global_timer.Start("Dataset::sparse_bin_histogram");
+      n_data_block_ = 1;
+      data_block_size_ = num_data;
+      Threading::BlockInfo<data_size_t>(num_threads_, num_data, min_block_size_,
+                                        &n_data_block_, &data_block_size_);
+      hist_buf->resize(origin_hist_data.size());
+      for (size_t i = 0; i < origin_hist_data.size(); ++i) {
+        ResizeHistBuf(&((*hist_buf)[i]), cur_multi_val_bin);
+      }
+      OMP_INIT_EX();
+      #pragma omp parallel for schedule(static) num_threads(num_threads_)
+      for (int block_id = 0; block_id < n_data_block_; ++block_id) {
+        OMP_LOOP_EX_BEGIN();
+        data_size_t start = block_id * data_block_size_;
+        data_size_t end = std::min<data_size_t>(start + data_block_size_, num_data);
+        ConstructSymmetricTreeHistogramsForBlock<USE_INDICES, ORDERED>(
+          cur_multi_val_bin, start, end, data_indices, leaf_indices, gradients, hessians,
+          block_id, hist_buf, origin_hist_data);
+        OMP_LOOP_EX_END();
+      }
+      OMP_THROW_EX();
+      global_timer.Stop("Dataset::sparse_bin_histogram");
+
+      global_timer.Start("Dataset::sparse_bin_histogram_merge");
+      for (size_t i = 0; i < origin_hist_data.size(); ++i) {
+        HistMerge(&((*hist_buf)[i]), origin_hist_data[i]);
+      }
+      global_timer.Stop("Dataset::sparse_bin_histogram_merge");
+      global_timer.Start("Dataset::sparse_bin_histogram_move");
+      for (size_t i = 0; i < origin_hist_data.size(); ++i) {
+        HistMove((*hist_buf)[i], origin_hist_data[i]);
+      }
       global_timer.Stop("Dataset::sparse_bin_histogram_move");
     }
   }
@@ -86,8 +141,9 @@ class MultiValBinWrapper {
   void ConstructHistogramsForBlock(const MultiValBin* sub_multi_val_bin,
     data_size_t start, data_size_t end, const data_size_t* data_indices,
     const score_t* gradients, const score_t* hessians, int block_id,
-    std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>* hist_buf) {
-    hist_t* data_ptr = origin_hist_data_;
+    std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>* hist_buf,
+    hist_t* origin_hist_data) {
+    hist_t* data_ptr = origin_hist_data;
     if (block_id == 0) {
       if (is_use_subcol_) {
         data_ptr = hist_buf->data() + hist_buf->size() - 2 * static_cast<size_t>(num_bin_aligned_);
@@ -107,6 +163,44 @@ class MultiValBinWrapper {
       }
     } else {
       sub_multi_val_bin->ConstructHistogram(start, end, gradients, hessians,
+                                        data_ptr);
+    }
+  }
+
+  template <bool USE_INDICES, bool ORDERED>
+  void ConstructSymmetricTreeHistogramsForBlock(const MultiValBin* sub_multi_val_bin,
+    data_size_t start, data_size_t end, const data_size_t* data_indices, const uint32_t* leaf_indices,
+    const score_t* gradients, const score_t* hessians, int block_id,
+    std::vector<std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>>* hist_buf,
+    const std::vector<hist_t*>& origin_hist_data) {
+    std::vector<hist_t*> data_ptr(origin_hist_data.size(), nullptr);
+    for (size_t i = 0; i < origin_hist_data.size(); ++i) {
+      data_ptr[i] = origin_hist_data[i];
+    }
+    auto& hist_buf_ref = *hist_buf;
+    for (size_t i = 0; i < origin_hist_data.size(); ++i) {
+      if (block_id == 0) {
+        if (is_use_subcol_) {
+          data_ptr[i] = hist_buf_ref[i].data() + hist_buf_ref[i].size() - 2 * static_cast<size_t>(num_bin_aligned_);
+        }
+      } else {
+        data_ptr[i] = hist_buf_ref[i].data() +
+          static_cast<size_t>(num_bin_aligned_) * (block_id - 1) * 2;
+      }
+    }
+    for (size_t i = 0; i < data_ptr.size(); ++i) {
+      std::memset(reinterpret_cast<void*>(data_ptr[i]), 0, num_bin_ * kHistBufferEntrySize);
+    }
+    if (USE_INDICES) {
+      if (ORDERED) {
+        sub_multi_val_bin->ConstructSymmetricTreeHistogramOrdered(start, end, data_indices,
+                                                gradients, hessians, data_ptr);
+      } else {
+        sub_multi_val_bin->ConstructSymmetricTreeHistogram(start, end, data_indices, leaf_indices, gradients,
+                                          hessians, data_ptr);
+      }
+    } else {
+      sub_multi_val_bin->ConstructSymmetricTreeHistogram(start, end, gradients, hessians,
                                         data_ptr);
     }
   }
@@ -143,8 +237,6 @@ class MultiValBinWrapper {
   int data_block_size_;
   int min_block_size_;
   int num_data_;
-
-  hist_t* origin_hist_data_;
 
   const size_t kHistBufferEntrySize = 2 * sizeof(hist_t);
 };
@@ -199,6 +291,19 @@ struct TrainingShareStates {
     }
   }
 
+  template <bool USE_INDICES, bool ORDERED>
+  void ConstructSymmetricTreeHistograms(const data_size_t* data_indices,
+                          const uint32_t* leaf_indices,
+                          data_size_t num_small_leaf_data,
+                          const score_t* gradients,
+                          const score_t* hessians,
+                          const std::vector<hist_t*>& hist_data) {
+    if (multi_val_bin_wrapper_ != nullptr) {
+      multi_val_bin_wrapper_->ConstructSymmetricTreeHistograms<USE_INDICES, ORDERED>(
+        data_indices, leaf_indices, num_small_leaf_data, gradients, hessians, &symmetric_tree_hist_buf_, hist_data);
+    }
+  }
+
   void SetUseSubrow(bool is_use_subrow) {
     if (multi_val_bin_wrapper_ != nullptr) {
       multi_val_bin_wrapper_->SetUseSubrow(is_use_subrow);
@@ -216,6 +321,7 @@ struct TrainingShareStates {
   int num_hist_total_bin_ = 0;
   std::unique_ptr<MultiValBinWrapper> multi_val_bin_wrapper_;
   std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>> hist_buf_;
+  std::vector<std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>> symmetric_tree_hist_buf_;
   int num_total_bin_ = 0;
   double num_elements_per_row_ = 0.0f;
 };

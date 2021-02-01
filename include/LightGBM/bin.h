@@ -316,6 +316,12 @@ class Bin {
     const score_t* ordered_gradients, const score_t* ordered_hessians,
     hist_t* out) const = 0;
 
+  virtual void ConstructSymmetricTreeHistogram(data_size_t num_data_in_small_leaf,
+    const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices,
+    const score_t* ordered_gradients, const score_t* ordered_hessians,
+    std::vector<hist_t*>& out) const = 0;
+
   /*!
   * \brief Construct histogram of this feature,
   *        Note: We use ordered_gradients and ordered_hessians to improve cache hit chance
@@ -334,6 +340,12 @@ class Bin {
 
   virtual void ConstructHistogram(data_size_t start, data_size_t end,
                                   const score_t* ordered_gradients, hist_t* out) const = 0;
+
+  virtual void ConstructSymmetricTreeHistogram(data_size_t num_data_in_small_leaf,
+    const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices,
+    const score_t* ordered_gradients,
+    std::vector<hist_t*>& out) const = 0;
 
   virtual data_size_t Split(uint32_t min_bin, uint32_t max_bin,
                             uint32_t default_bin, uint32_t most_freq_bin,
@@ -443,6 +455,27 @@ class MultiValBin {
                                          const score_t* ordered_gradients,
                                          const score_t* ordered_hessians,
                                          hist_t* out) const = 0;
+
+  virtual void ConstructSymmetricTreeHistogram(const data_size_t start,
+                                  const data_size_t end,
+                                  const data_size_t* data_indices,
+                                  const uint32_t* small_leaf_indices,
+                                  const score_t* gradients,
+                                  const score_t* hessians,
+                                  const std::vector<hist_t*>& out) const = 0;
+
+  virtual void ConstructSymmetricTreeHistogram(const data_size_t start,
+                                  const data_size_t end,
+                                  const score_t* gradients,
+                                  const score_t* hessians,
+                                  const std::vector<hist_t*>& out) const = 0;
+
+  virtual void ConstructSymmetricTreeHistogramOrdered(const data_size_t start,
+                                         const data_size_t end,
+                                         const data_size_t* data_indices,
+                                         const score_t* ordered_gradients,
+                                         const score_t* ordered_hessians,
+                                         const std::vector<hist_t*>& out) const = 0;
 
   virtual void FinishLoad() = 0;
 

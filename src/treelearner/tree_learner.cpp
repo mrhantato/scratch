@@ -9,6 +9,7 @@
 #include "linear_tree_learner.h"
 #include "parallel_tree_learner.h"
 #include "serial_tree_learner.h"
+#include "symmetric/symmetric_tree_learner.hpp"
 
 namespace LightGBM {
 
@@ -19,7 +20,11 @@ TreeLearner* TreeLearner::CreateTreeLearner(const std::string& learner_type, con
       if (config->linear_tree) {
         return new LinearTreeLearner(config);
       } else {
-        return new SerialTreeLearner(config);
+        if (config->symmetric_tree) {
+          return new SymmetricTreeLearner(config);
+        } else {
+          return new SerialTreeLearner(config);
+        }
       }
     } else if (learner_type == std::string("feature")) {
       return new FeatureParallelTreeLearner<SerialTreeLearner>(config);

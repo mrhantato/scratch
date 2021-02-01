@@ -1181,7 +1181,7 @@ class HistogramPool {
     }
   }
 
-  void DynamicChangeSize(const Dataset* train_data, int num_total_bin,
+  virtual void DynamicChangeSize(const Dataset* train_data, int num_total_bin,
                         const std::vector<uint32_t>& offsets, const Config* config,
                         int cache_size, int total_size) {
     if (feature_metas_.empty()) {
@@ -1289,7 +1289,7 @@ class HistogramPool {
     inverse_mapper_[slot] = dst_idx;
   }
 
- private:
+ protected:
   std::vector<std::unique_ptr<FeatureHistogram[]>> pool_;
   std::vector<
       std::vector<hist_t, Common::AlignmentAllocator<hist_t, kAlignedSize>>>

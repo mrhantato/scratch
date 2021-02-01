@@ -678,6 +678,23 @@ class Dataset {
     return raw_data_[numeric_feature_map_[feat_ind]].data();
   }
 
+  void ConstructSymmetricLevelHistogram(
+    const int group_index, std::vector<hist_t*>& out, const score_t* gradients, const score_t* hessians,
+    data_size_t num_data_in_small_leaf, const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices) const;
+
+  void ConstructSymmetricLevelHistogramsMultiVal(const data_size_t* data_indices_in_small_leaf,
+                                   data_size_t num_data_in_small_leaf,
+                                   const uint32_t* small_leaf_indices,
+                                   const score_t* gradients,
+                                   const score_t* hessians,
+                                   TrainingShareStates* share_state,
+                                   const std::vector<hist_t*>& hist_data) const;
+
+  int group_feature_start(const int group) const {
+    return group_feature_start_[group];
+  }
+
  private:
   std::string data_filename_;
   /*! \brief Store used features */

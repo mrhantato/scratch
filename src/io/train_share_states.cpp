@@ -46,7 +46,8 @@ void MultiValBinWrapper::InitTrain(const std::vector<int>& group_feature_start,
 }
 
 void MultiValBinWrapper::HistMove(const std::vector<hist_t,
-  Common::AlignmentAllocator<hist_t, kAlignedSize>>& hist_buf) {
+  Common::AlignmentAllocator<hist_t, kAlignedSize>>& hist_buf,
+  hist_t* origin_hist_data) {
   if (!is_use_subcol_) {
     return;
   }
@@ -55,17 +56,18 @@ void MultiValBinWrapper::HistMove(const std::vector<hist_t,
   #pragma omp parallel for schedule(static)
   for (int i = 0; i < static_cast<int>(hist_move_src_.size()); ++i) {
     std::copy_n(src + hist_move_src_[i], hist_move_size_[i],
-                origin_hist_data_ + hist_move_dest_[i]);
+                origin_hist_data + hist_move_dest_[i]);
   }
 }
 
 void MultiValBinWrapper::HistMerge(std::vector<hist_t,
-  Common::AlignmentAllocator<hist_t, kAlignedSize>>* hist_buf) {
+  Common::AlignmentAllocator<hist_t, kAlignedSize>>* hist_buf,
+  hist_t* origin_hist_data) {
   int n_bin_block = 1;
   int bin_block_size = num_bin_;
   Threading::BlockInfo<data_size_t>(num_threads_, num_bin_, 512, &n_bin_block,
                                   &bin_block_size);
-  hist_t* dst = origin_hist_data_;
+  hist_t* dst = origin_hist_data;
   if (is_use_subcol_) {
     dst = hist_buf->data() + hist_buf->size() - 2 * static_cast<size_t>(num_bin_aligned_);
   }
@@ -84,11 +86,9 @@ void MultiValBinWrapper::HistMerge(std::vector<hist_t,
 
 void MultiValBinWrapper::ResizeHistBuf(std::vector<hist_t,
   Common::AlignmentAllocator<hist_t, kAlignedSize>>* hist_buf,
-  MultiValBin* sub_multi_val_bin,
-  hist_t* origin_hist_data) {
+  MultiValBin* sub_multi_val_bin) {
   num_bin_ = sub_multi_val_bin->num_bin();
   num_bin_aligned_ = (num_bin_ + kAlignedSize - 1) / kAlignedSize * kAlignedSize;
-  origin_hist_data_ = origin_hist_data;
   size_t new_buf_size = static_cast<size_t>(n_data_block_) * static_cast<size_t>(num_bin_aligned_) * 2;
   if (hist_buf->size() < new_buf_size) {
     hist_buf->resize(new_buf_size);
@@ -339,6 +339,7 @@ void TrainingShareStates::CalcBinOffsets(const std::vector<std::unique_ptr<Featu
         } else {
           offsets->push_back(cur_num_bin);
           cur_num_bin += feature_group->bin_offsets_.back() - 1;
+          CHECK(feature_group->bin_offsets_[0] == 1);
           for (int i = 0; i < feature_group->num_feature_; ++i) {
             feature_hist_offsets_.push_back(hist_cur_num_bin + feature_group->bin_offsets_[i] - 1);
           }

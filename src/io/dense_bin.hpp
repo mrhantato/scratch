@@ -170,6 +170,91 @@ class DenseBin : public Bin {
         nullptr, start, end, ordered_gradients, nullptr, out);
   }
 
+  template <bool USE_HESSIAN, bool SINGLE_SMALL_LEAF, bool IS_ROOT>
+  void ConstructSymmetricTreeHistogramInner(data_size_t num_data_in_small_leaf,
+    const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices,
+    const score_t* ordered_gradients, const score_t* ordered_hessians,
+    std::vector<hist_t*>& out) const {
+    if (IS_ROOT) {
+      hist_t* grad = out[0];
+      hist_t* hess = out[0] + 1;
+      CHECK_EQ(num_data_in_small_leaf, num_data_);
+      for (data_size_t i = 0; i < num_data_in_small_leaf; ++i) {
+        const score_t gradient = ordered_gradients[i];
+        const score_t hessian = ordered_hessians[i];
+        const auto ti = data(i) << 1;
+        if (USE_HESSIAN) {
+          grad[ti] += gradient;
+          hess[ti] += hessian;
+        } else {
+          grad[ti] += gradient;
+          hess[ti] += 1.0f;
+        }
+      }
+    } else if (SINGLE_SMALL_LEAF) {
+      hist_t* grad = out[0];
+      hist_t* hess = out[0] + 1;
+      for (data_size_t i = 0; i < num_data_in_small_leaf; ++i) {
+        const data_size_t data_index = data_indices_in_small_leaf[i];
+        const score_t gradient = ordered_gradients[i];
+        const score_t hessian = ordered_hessians[i];
+        const auto ti = data(data_index) << 1;
+        grad[ti] += gradient;
+        hess[ti] += hessian;
+      }
+    } else {
+      for (data_size_t i = 0; i < num_data_in_small_leaf; ++i) {
+        const data_size_t data_index = data_indices_in_small_leaf[i];
+        const int32_t small_leaf_index = small_leaf_indices[i];
+        const score_t gradient = ordered_gradients[i];
+        const score_t hessian = ordered_hessians[i];
+        const auto bin = data(data_index);
+        hist_t* leaf_out = out[small_leaf_index];
+        if (USE_HESSIAN) {
+          leaf_out[bin << 1] += gradient;
+          leaf_out[(bin << 1) + 1] += hessian;
+        } else {
+          leaf_out[bin << 1] += gradient;
+          leaf_out[(bin << 1) + 1] += 1.0f;
+        }
+      }
+    }
+  }
+
+  void ConstructSymmetricTreeHistogram(data_size_t num_data_in_small_leaf,
+    const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices,
+    const score_t* ordered_gradients, const score_t* ordered_hessians,
+    std::vector<hist_t*>& out) const override {
+    if (num_data_in_small_leaf == num_data_) {
+      ConstructSymmetricTreeHistogramInner<true, false, true>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, ordered_hessians, out);
+    } else if (small_leaf_indices == nullptr) {
+      ConstructSymmetricTreeHistogramInner<true, true, false>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, ordered_hessians, out);
+    } else {
+      ConstructSymmetricTreeHistogramInner<true, false, false>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, ordered_hessians, out);
+    }
+  }
+
+  void ConstructSymmetricTreeHistogram(data_size_t num_data_in_small_leaf,
+    const data_size_t* data_indices_in_small_leaf,
+    const uint32_t* small_leaf_indices,
+    const score_t* ordered_gradients,
+    std::vector<hist_t*>& out) const override {
+    if (num_data_in_small_leaf == num_data_) {
+      ConstructSymmetricTreeHistogramInner<false, false, true>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, nullptr, out);
+    } else if (small_leaf_indices == nullptr) {
+      ConstructSymmetricTreeHistogramInner<false, true, false>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, nullptr, out);
+    } else {
+      ConstructSymmetricTreeHistogramInner<false, false, false>(num_data_in_small_leaf,
+        data_indices_in_small_leaf, small_leaf_indices, ordered_gradients, nullptr, out);
+    }
+  }
 
   template <bool MISS_IS_ZERO, bool MISS_IS_NA, bool MFB_IS_ZERO,
             bool MFB_IS_NA, bool USE_MIN_BIN>

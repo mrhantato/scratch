@@ -175,6 +175,7 @@ const std::unordered_set<std::string>& Config::parameter_set() {
   "objective",
   "boosting",
   "linear_tree",
+  "symmetric_tree",
   "data",
   "valid",
   "num_iterations",
@@ -307,6 +308,8 @@ const std::unordered_set<std::string>& Config::parameter_set() {
 void Config::GetMembersFromString(const std::unordered_map<std::string, std::string>& params) {
   std::string tmp_str = "";
   GetBool(params, "linear_tree", &linear_tree);
+
+  GetBool(params, "symmetric_tree", &symmetric_tree);
 
   GetString(params, "data", &data);
 
@@ -629,6 +632,7 @@ void Config::GetMembersFromString(const std::unordered_map<std::string, std::str
 
 std::string Config::SaveMembersToString() const {
   std::stringstream str_buf;
+  str_buf << "[symmetric_tree: " << symmetric_tree << "]\n";
   str_buf << "[linear_tree: " << linear_tree << "]\n";
   str_buf << "[data: " << data << "]\n";
   str_buf << "[valid: " << Common::Join(valid, ",") << "]\n";
